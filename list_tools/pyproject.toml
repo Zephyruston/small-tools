@@ -1,0 +1,13 @@
+[project]
+name = "list_tools"
+version = "0.1.0"
+description = "Package manager tool discovery and documentation generator"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "typer>=0.17.3",
+    "rich>=14.1.0",
+    "pydantic>=2.11.7",
+    "openai>=1.102.0",
+    "dotenv>=0.9.9",
+]
