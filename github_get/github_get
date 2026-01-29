@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""
+GitHub URL 转换脚本
+将 GitHub 页面 URL 转换为可以直接下载的 raw.githubusercontent.com URL
+"""
+
+import sys
+import re
+import argparse
+import urllib.parse
+
+def convert_github_url(github_url):
+    """
+    将 GitHub 页面 URL 转换为 raw.githubusercontent.com URL
+    """
+    # 匹配 GitHub URL 模式
+    patterns = [
+        r'https?://github\.com/([^/]+)/([^/]+)/blob/([^/]+)/(.+)',
+        r'https?://github\.com/([^/]+)/([^/]+)/tree/([^/]+)/(.+)',
+        r'https?://github\.com/([^/]+)/([^/]+)/raw/([^/]+)/(.+)',
+    ]
+    
+    for pattern in patterns:
+        match = re.match(pattern, github_url)
+        if match:
+            owner = match.group(1)
+            repo = match.group(2)
+            branch = match.group(3)
+            file_path = match.group(4)
+            
+            # 构造 raw URL
+            raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"
+            return raw_url
+    
+    # 如果不是标准的 GitHub blob/tree URL，检查是否是 raw URL
+    if 'raw.githubusercontent.com' in github_url:
+        return github_url
+    
+    return None
+
+def generate_wget_command(github_url, output_file=None):
+    """
+    生成 wget 下载命令
+    """
+    raw_url = convert_github_url(github_url)
+    if not raw_url:
+        return None
+    
+    if output_file:
+        cmd = f'wget -O "{output_file}" "{raw_url}"'
+    else:
+        # 从 URL 中提取文件名
+        file_name = urllib.parse.urlparse(raw_url).path.split('/')[-1]
+        if not file_name:
+            file_name = "downloaded_file"
+        cmd = f'wget "{raw_url}"'
+    
+    return cmd, raw_url
+
+def generate_curl_command(github_url, output_file=None):
+    """
+    生成 curl 下载命令
+    """
+    raw_url = convert_github_url(github_url)
+    if not raw_url:
+        return None
+    
+    if output_file:
+        cmd = f'curl -L -o "{output_file}" "{raw_url}"'
+    else:
+        cmd = f'curl -L -O "{raw_url}"'
+    
+    return cmd, raw_url
+
+def main():
+    parser = argparse.ArgumentParser(
+        description='将 GitHub URL 转换为可直接下载的 URL',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog='''
+示例:
+  %(prog)s https://github.com/volcengine/volc-sdk-golang/blob/main/example/tls/demo_producer.go
+  %(prog)s -o demo.go https://github.com/volcengine/volc-sdk-golang/blob/main/example/tls/demo_producer.go
+  %(prog)s -c https://github.com/volcengine/volc-sdk-golang/blob/main/example/tls/demo_producer.go
+  %(prog)s -d https://github.com/volcengine/volc-sdk-golang/blob/main/example/tls/demo_producer.go
+        '''
+    )
+    
+    parser.add_argument('url', help='GitHub 文件 URL')
+    parser.add_argument('-o', '--output', help='输出文件名')
+    parser.add_argument('-c', '--curl', action='store_true', help='生成 curl 命令而不是 wget')
+    parser.add_argument('-d', '--direct', action='store_true', help='直接显示转换后的 URL')
+    parser.add_argument('-e', '--execute', action='store_true', help='直接执行下载命令')
+    
+    args = parser.parse_args()
+    
+    # 直接显示转换后的 URL
+    if args.direct:
+        raw_url = convert_github_url(args.url)
+        if raw_url:
+            print(raw_url)
+            sys.exit(0)
+        else:
+            print(f"错误: 无法转换 URL: {args.url}", file=sys.stderr)
+            sys.exit(1)
+    
+    # 生成命令
+    if args.curl:
+        result = generate_curl_command(args.url, args.output)
+    else:
+        result = generate_wget_command(args.url, args.output)
+    
+    if not result:
+        print(f"错误: 无法转换 URL: {args.url}", file=sys.stderr)
+        sys.exit(1)
+    
+    cmd, raw_url = result
+    
+    print(f"原始 URL: {args.url}")
+    print(f"转换后的 URL: {raw_url}")
+    print(f"\n下载命令:\n{cmd}")
+    
+    # 如果需要直接执行
+    if args.execute:
+        print(f"\n正在执行命令...")
+        import subprocess
+        try:
+            subprocess.run(cmd, shell=True, check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"下载失败: {e}", file=sys.stderr)
+            sys.exit(1)
+
+if __name__ == '__main__':
+    main()

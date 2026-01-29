@@ -1,0 +1,37 @@
+#!/bin/bash
+
+usage() {
+    echo "用法:"
+    echo "  压缩: ezip c <格式> <压缩包名(不带后缀)> <文件1> [文件2...]"
+    echo "  解压: ezip x <文件名>"
+    echo "示例: ezip c gz my_backup file1 dir2 photo.jpg"
+    exit 1
+}
+
+if [ "$1" == "x" ]; then
+    if [ -f "$2" ]; then
+        echo "正在解压 $2 ..."
+        tar -xvf "$2"
+    else
+        echo "错误: 文件 $2 不存在"
+    fi
+elif [ "$1" == "c" ]; then
+    if [ "$#" -lt 4 ]; then usage; fi
+    
+    FORMAT=$2
+    OUT_NAME=$3
+    shift 3  # 跳过 c, 格式, 包名，剩下的全是文件
+    
+    case $FORMAT in
+        gz)
+            tar --ignore-failed-read -zcvf "${OUT_NAME}.tar.gz" "$@" ;;
+        xz)
+            tar --ignore-failed-read -Jcvf "${OUT_NAME}.tar.xz" "$@" ;;
+        bz2)
+            tar --ignore-failed-read -jcvf "${OUT_NAME}.tar.bz2" "$@" ;;
+        *)
+            usage ;;
+    esac
+else
+    usage
+fi
