@@ -1,5 +1,7 @@
 use clap::Parser;
-use dotenv::dotenv;
+use confy::ConfyError;
+use dotenvy::dotenv;
+use notify_rust::Notification;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -7,13 +9,52 @@ use std::fs::File;
 use std::io::Write;
 use std::time::Duration;
 
+/// 应用程序配置
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct AppConfig {
+    /// ModelScope API 基础URL
+    api_base_url: Option<String>,
+    /// ModelScope API Key
+    api_key: Option<String>,
+    /// 模型名称
+    model_name: Option<String>,
+    /// 默认图像尺寸
+    default_size: Option<String>,
+}
+
+impl AppConfig {
+    fn load() -> Result<Self, ConfyError> {
+        // 尝试从配置文件加载
+        let config: AppConfig = confy::load("image-gen", "config")?;
+
+        // 如果配置文件中的值为空，尝试从环境变量读取作为后备
+        let mut cfg = config;
+
+        if cfg.api_base_url.is_none() {
+            cfg.api_base_url = env::var("API_BASE_URL").ok();
+        }
+        if cfg.api_key.is_none() {
+            cfg.api_key = env::var("API_KEY").ok();
+        }
+        if cfg.model_name.is_none() {
+            cfg.model_name = env::var("MODEL_NAME").ok();
+        }
+
+        // 保存更新后的配置
+        confy::store("image-gen", "config", &cfg)?;
+
+        Ok(cfg)
+    }
+}
+
 /// ModelScope图像生成CLI工具
 /// 通过API生成图像，图像以hash值命名保存
 #[derive(Parser)]
 #[clap(
-    name = "ModelScope图像生成工具",
-    about = "ModelScope图像生成工具",
-    after_help = "支持的图像尺寸:\n  1664x928 (16:9 横屏)\n  1472x1140 (4:3 标准横屏)\n  1328x1328 (1:1 正方形，默认)\n  1140x1472 (3:4 标准竖屏)\n  928x1664 (9:16 竖屏)"
+    name = "image_gen",
+    about = "ModelScope图像生成CLI工具",
+    version = "0.1.0",
+    after_help = "支持的图像尺寸:\n  1664x928 (16:9 横屏, 默认)\n  1472x1140 (4:3 标准横屏)\n  1328x1328 (1:1 正方形)\n  1140x1472 (3:4 标准竖屏)\n  928x1664 (9:16 竖屏)"
 )]
 struct Cli {
     /// 图像生成提示词
@@ -24,7 +65,7 @@ struct Cli {
         long,
         short,
         value_parser = ["1664x928", "1472x1140", "1328x1328", "1140x1472", "928x1664"],
-        default_value = "1328x1328"
+        default_value = "1664x928"
     )]
     size: String,
 
@@ -170,6 +211,17 @@ async fn save_image_from_url(
     file.write_all(&bytes)?;
 
     println!("图像已保存为: {}", filename);
+
+    // 发送桌面通知
+    if let Err(e) = Notification::new()
+        .summary("图像生成完成")
+        .body(&format!("图像已保存为: {}", filename))
+        .icon("image-x-generic")
+        .show()
+    {
+        eprintln!("发送通知失败: {}", e);
+    }
+
     Ok(())
 }
 
@@ -182,12 +234,28 @@ fn generate_filename(prompt: &str) -> String {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv().ok();
 
-    // ModelScope API配置
-    let api_base_url = env::var("API_BASE_URL")?;
-    let api_key = env::var("API_KEY")?;
-    let model_name = env::var("MODEL_NAME")?;
+    // 先尝试解析 CLI 参数，让 clap 处理 --help / --version
+    let cli = match Cli::try_parse_from(std::env::args()) {
+        Ok(cli) => cli,
+        Err(e) => {
+            // clap 会自动打印帮助/版本信息
+            e.exit();
+        }
+    };
 
-    let cli = Cli::parse();
+    // 加载配置
+    let config = AppConfig::load()?;
+
+    // 从配置中获取必需的API参数
+    let api_base_url = config
+        .api_base_url
+        .ok_or("请在配置文件中设置 API_BASE_URL 或设置环境变量")?;
+    let api_key = config
+        .api_key
+        .ok_or("请在配置文件中设置 API_KEY 或设置环境变量")?;
+    let model_name = config
+        .model_name
+        .ok_or("请在配置文件中设置 MODEL_NAME 或设置环境变量")?;
 
     // 生成文件名
     let output_filename = cli.output.unwrap_or_else(|| generate_filename(&cli.prompt));
